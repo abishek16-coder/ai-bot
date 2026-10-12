@@ -1944,5 +1944,143 @@ footer {
     animation: none;
   }
 }
- 
 
+/* =====================================================
+   AI LOADING ANIMATION
+===================================================== */
+
+.ai-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.loading-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e07422, #f4a261);
+  animation: dotBounce 1.4s infinite ease-in-out both;
+}
+
+.loading-dots span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+.loading-dots span:nth-child(3) {
+  animation-delay: 0s;
+}
+
+@keyframes dotBounce {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.4);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.loading-text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+  letter-spacing: 0.3px;
+}
+
+/* =====================================================
+   TEXT INPUT AREA
+===================================================== */
+
+.text-input-area {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 600px;
+  margin-top: 20px;
+}
+
+.text-input-area input {
+  flex: 1;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.3s, background 0.3s, box-shadow 0.3s;
+  backdrop-filter: blur(8px);
+}
+
+.text-input-area input:focus {
+  border-color: rgba(224, 116, 34, 0.5);
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: 0 0 20px rgba(224, 116, 34, 0.15);
+}
+
+.text-input-area input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.text-input-area input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.text-input-area button {
+  padding: 14px 22px;
+  border-radius: 14px;
+  border: none;
+  background: linear-gradient(135deg, #e07422, #c0392b);
+  color: white;
+  font-size: 17px;
+  cursor: pointer;
+  transition: opacity 0.3s, transform 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+}
+
+.text-input-area button:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: scale(1.05);
+}
+
+.text-input-area button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* =====================================================
+   MIC DISABLED STATE
+===================================================== */
+
+.mic-button.mic-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  animation: none !important;
+}
+
+.mic-button.mic-disabled:hover {
+  transform: none !important;
+}
