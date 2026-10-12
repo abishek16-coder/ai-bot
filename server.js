@@ -1,158 +1,133 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import {
-  GoogleGenerativeAI,
-} from "@google/generative-ai";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { GoogleGenAI } from "@google/genai";
 
-/* =========================================================
-   CONFIG
-========================================================= */
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.GEMINI_API_KEY;
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
 if (!API_KEY) {
-  console.error(
-    "❌ GEMINI_API_KEY is missing in .env file!"
-  );
+  console.error("GEMINI_API_KEY is missing in .env file!");
   process.exit(1);
 }
 
-const genAI = new GoogleGenerativeAI(API_KEY);
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: "100kb" }));
 
-/* =========================================================
-   SYSTEM PROMPT
-========================================================= */
+/* ---------- Created once at startup ---------- */
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
-const SYSTEM_PROMPT = `You are "Navarathiri AI", a deeply knowledgeable and culturally respectful voice assistant specialized in Hindu festivals, epics, and scriptures.
+const KNOWLEDGE_PATH = path.join(__dirname, "knowledge.txt"); // your Navarathiri facts
+const KNOWLEDGE = fs.existsSync(KNOWLEDGE_PATH)
+  ? fs.readFileSync(KNOWLEDGE_PATH, "utf8").trim()
+  : "";
+if (!KNOWLEDGE) console.warn("WARNING: knowledge.txt missing or empty.");
 
-Your expertise areas:
-- Navarathiri / Navaratri (9-day festival, Golu/Kolu traditions, daily goddess worship, Durga, Lakshmi, Saraswati, regional practices across India)
-- Ramayana (all kandas including Bala, Ayodhya, Aranya, Kishkindha, Sundara, Yuddha, Uttara — characters, events, teachings)
-- Sundarakanda (Hanuman's journey to Lanka, ocean crossing, Lankini, Surasa, Simhika, Mainaka, finding Sita in Ashoka Vatika, Chudamani, burning Lanka, return)
-- Mahabharata (Pandavas, Kauravas, Kurukshetra war, dice game, exile, key events and characters)
-- Bhagavad Gita (Krishna-Arjuna dialogue on the battlefield, key chapters, Karma Yoga, Bhakti Yoga, Jnana Yoga, key shlokas)
-- Hindu deities, temples, festivals, and cultural practices
+const SYSTEM_PROMPT = `You are Navarathiri AI, a warm, friendly woman who loves Hindu festivals, epics and scriptures. You are talking out loud with someone, so write exactly the way a person would speak.
 
-Response Rules:
-1. If the user's language preference is "tamil", respond ENTIRELY in Tamil script (தமிழ்). Do NOT mix English words unless they are universally known proper nouns.
-2. If the language preference is "english", respond in clear, simple English.
-3. Keep answers concise — 2 to 4 short paragraphs maximum. This is CRITICAL because your answers will be read aloud by text-to-speech, so they must sound natural when spoken.
-4. Be culturally respectful, reverent, and accurate.
-5. For questions outside Hindu mythology/festivals/scriptures, politely say this is outside your expertise and suggest the user ask about Navarathiri, Ramayana, Mahabharata, or related topics.
-6. Do NOT use any markdown formatting (no **, ##, bullet points, numbered lists, etc.) since the answer is displayed as plain text and spoken aloud. Write in natural flowing paragraphs.
-7. Do NOT start with filler phrases like "Great question!", "Sure!", "Of course!" — just answer directly and respectfully.
-8. When discussing scriptures, note that traditions and interpretations can vary by region and text.`;
+LANGUAGE
+- Reply in the language the user used. Tamil script in, Tamil out (natural spoken Tamil, not stiff written Tamil). English in, English out.
+- If they naturally mix Tamil and English, reply in the same natural mix.
+- If they type Tamil in English letters, reply in Tamil script.
 
-/* =========================================================
-   CHAT ENDPOINT
-========================================================= */
+STYLE (this is spoken aloud)
+- One to three short sentences, four at most. Lead with the answer.
+- Sound like a kind friend, not a textbook. Contractions and soft connectors are fine.
+- No markdown, lists, emojis, brackets, or symbols. Write numbers and dates the way you would say them.
+- Don't open with "Great question", "Sure", or "Of course". Don't repeat the question back.
 
-app.post("/api/chat", async (req, res) => {
+ACCURACY
+- Use the KNOWLEDGE section first.
+- If it doesn't cover the question, answer from well-established general knowledge only when you are confident, and mention that customs vary by region and family when it matters.
+- If you are not confident, say so in one short sentence in the user's language and suggest asking a temple priest or scholar. Never invent details.
+- If the question is unrelated to Hindu festivals, epics or scriptures, say kindly that it's outside what you cover and invite a question about Navarathiri, Ramayana or Mahabharata.`;
+
+// Identical on every request -> enables implicit caching on the prefix
+const SYSTEM_INSTRUCTION = `${SYSTEM_PROMPT}\n\nKNOWLEDGE:\n${KNOWLEDGE}`;
+
+const GEN_CONFIG = {
+  systemInstruction: SYSTEM_INSTRUCTION,
+  temperature: 0.7,
+  topP: 0.9,
+  maxOutputTokens: 256,
+  // Biggest latency win. If your SDK version rejects this, use { thinkingBudget: 0 }
+  thinkingConfig: { thinkingLevel: "minimal" },
+};
+
+function buildContents(question, history) {
+  const contents = [];
+  const recent = Array.isArray(history) ? history.slice(-3) : [];
+  for (const t of recent) {
+    if (t?.question) contents.push({ role: "user", parts: [{ text: String(t.question) }] });
+    if (t?.answer) contents.push({ role: "model", parts: [{ text: String(t.answer) }] });
+  }
+  contents.push({ role: "user", parts: [{ text: question }] });
+  return contents;
+}
+
+/* ---------- Streaming endpoint (use this for voice) ---------- */
+app.post("/api/chat/stream", async (req, res) => {
+  const question = req.body?.question?.trim();
+  if (!question) return res.status(400).json({ error: "Question is required" });
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const controller = new AbortController();
+  res.on("close", () => controller.abort()); // user interrupted or left
+
   try {
-    const { question, language, history } =
-      req.body;
-
-    if (!question || !question.trim()) {
-      return res
-        .status(400)
-        .json({
-          error: "Question is required",
-        });
-    }
-
-    const model =
-      genAI.getGenerativeModel({
-        model: "gemini-2.0-flash",
-        systemInstruction: SYSTEM_PROMPT,
-      });
-
-    /* Build conversation history for multi-turn context */
-    const contents = [];
-
-    if (
-      history &&
-      Array.isArray(history)
-    ) {
-      for (const turn of history.slice(
-        -5
-      )) {
-        if (turn.question) {
-          contents.push({
-            role: "user",
-            parts: [
-              { text: turn.question },
-            ],
-          });
-        }
-
-        if (turn.answer) {
-          contents.push({
-            role: "model",
-            parts: [
-              { text: turn.answer },
-            ],
-          });
-        }
-      }
-    }
-
-    /* Current question with language context */
-    const userMessage = `[User's preferred language: ${language || "english"}]\n\nQuestion: ${question}`;
-
-    contents.push({
-      role: "user",
-      parts: [{ text: userMessage }],
+    const stream = await ai.models.generateContentStream({
+      model: MODEL,
+      contents: buildContents(question, req.body.history),
+      config: { ...GEN_CONFIG, abortSignal: controller.signal },
     });
 
-    const result =
-      await model.generateContent({
-        contents,
-      });
-
-    const response =
-      result.response.text();
-
-    res.json({ answer: response });
-  } catch (error) {
-    console.error(
-      "Gemini API Error:",
-      error.message
-    );
-
-    res.status(500).json({
-      error:
-        "Failed to get response from AI",
-      details: error.message,
-    });
+    for await (const chunk of stream) {
+      const text = chunk.text;
+      if (text) res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    }
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  } catch (err) {
+    if (!controller.signal.aborted) {
+      console.error("Gemini API Error:", err.message);
+      res.write(`data: ${JSON.stringify({ error: "Failed to get response" })}\n\n`);
+    }
+  } finally {
+    res.end();
   }
 });
 
-/* =========================================================
-   HEALTH CHECK
-========================================================= */
-
-app.get("/api/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    message: "Navarathiri AI Backend is running",
-  });
+/* ---------- Non-streaming fallback (same behaviour, one JSON reply) ---------- */
+app.post("/api/chat", async (req, res) => {
+  const question = req.body?.question?.trim();
+  if (!question) return res.status(400).json({ error: "Question is required" });
+  try {
+    const result = await ai.models.generateContent({
+      model: MODEL,
+      contents: buildContents(question, req.body.history),
+      config: GEN_CONFIG,
+    });
+    res.json({ answer: (result.text || "").trim() });
+  } catch (err) {
+    console.error("Gemini API Error:", err.message);
+    res.status(500).json({ error: "Failed to get response from AI", details: err.message });
+  }
 });
 
-/* =========================================================
-   START
-========================================================= */
+app.get("/api/health", (_req, res) =>
+  res.json({ status: "ok", message: "Navarathiri AI Backend is running", knowledgeChars: KNOWLEDGE.length })
+);
 
 app.listen(PORT, () => {
-  console.log(
-    `\n🙏 Navarathiri AI Backend running on http://localhost:${PORT}`
-  );
-  console.log(
-    `   Health check: http://localhost:${PORT}/api/health\n`
-  );
+  console.log(`\nNavarathiri AI Backend running on http://localhost:${PORT}`);
+  console.log(`   Health check: http://localhost:${PORT}/api/health\n`);
 });

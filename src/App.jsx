@@ -291,15 +291,19 @@ function App() {
       if (language === "tamil") {
         const tamilVoice =
           voices.find((voice) =>
-            voice.lang
-              ?.toLowerCase()
-              .startsWith("ta")
+            voice.lang?.toLowerCase().startsWith("ta") &&
+            (voice.name.toLowerCase().includes("female") ||
+              voice.name.toLowerCase().includes("woman") ||
+              voice.name.toLowerCase().includes("anushka") ||
+              voice.name.toLowerCase().includes("vasanth"))
+          ) ||
+          voices.find((voice) =>
+            voice.lang?.toLowerCase().startsWith("ta")
           );
 
         if (tamilVoice) {
           speech.voice = tamilVoice;
-          speech.lang =
-            tamilVoice.lang;
+          speech.lang = tamilVoice.lang;
         } else {
           speech.lang = "ta-IN";
         }
@@ -307,27 +311,28 @@ function App() {
         const englishVoice =
           voices.find(
             (voice) =>
-              voice.lang?.toLowerCase() ===
-              "en-in"
+              voice.lang?.toLowerCase().includes("en") &&
+              (voice.name.toLowerCase().includes("female") ||
+                voice.name.toLowerCase().includes("woman") ||
+                voice.name.toLowerCase().includes("zira") ||
+                voice.name.toLowerCase().includes("samantha") ||
+                voice.name.toLowerCase().includes("amy"))
           ) ||
           voices.find((voice) =>
-            voice.lang
-              ?.toLowerCase()
-              .startsWith("en")
+            voice.lang?.toLowerCase().startsWith("en")
           );
 
         if (englishVoice) {
           speech.voice = englishVoice;
-          speech.lang =
-            englishVoice.lang;
+          speech.lang = englishVoice.lang;
         } else {
-          speech.lang = "en-IN";
+          speech.lang = "en-US";
         }
       }
 
-      speech.rate = 0.9;
-      speech.pitch = 1;
-      speech.volume = 1;
+      speech.rate = 0.95;
+      speech.pitch = 1.0;
+      speech.volume = 1.0;
 
       speech.onstart = () => {
         setIsSpeaking(true);
